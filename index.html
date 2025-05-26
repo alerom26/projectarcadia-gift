@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Project Arcadia - Intranet Portal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- Supabase JS CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div id="root"></div>
+  <script type="text/javascript">
+    // TODO: Replace with your Supabase project URL and anon/public key
+    const SUPABASE_URL = 'https://YOUR_PROJECT.supabase.co';
+    const SUPABASE_KEY = 'YOUR_ANON_KEY';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const { useState, useEffect } = React;
+
+    // --- Basic Helpers ---
+    function getRoleName(roleId) {
+      const roles = {1: 'guest', 2: 'member', 3: 'c-level'};
+      return roles[roleId] || 'unknown';
+    }
+    function emailForUser(username) {
+      return `${username}@projectarcadia.com`;
+    }
+
+    // --- Login Component ---
+    function Login({onLogin}) {
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        setError('');
+        // Fetch user
+        let {data: user, error: fetchError} = await supabase
+          .from('users')
+          .select('*')
+          .eq('username', username)
+          .single();
+        if (fetchError || !user) {
+          setError('Invalid username or password.');
+          return;
+        }
+        // Password check (simulate hash check for demo)
+        if (password !== user.password_hash) {
+          setError('Invalid username or password.');
+          return;
+        }
+        if (!user.is_active) {
+          setError('Account is disabled.');
+          return;
+        }
+        onLogin(user);
+      };
+
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
+          <div className="bg-white p-8 rounded shadow w-full max-w-sm">
+            <h1 className="text-2xl font-bold mb-4 text-center">Project Arcadia</h1>
+            <form onSubmit={handleLogin}>
+              <label className="block text-gray-700 mb-2">Username</label>
+              <input className="w-full mb-4 px-3 py-2 border rounded" value={username} onChange={e=>setUsername(e.target.value)} required />
+              <label className="block text-gray-700 mb-2">Password</label>
+              <input type="password" className="w-full mb-4 px-3 py-2 border rounded" value={password} onChange={e=>setPassword(e.target.value)} required />
+              {error && <div className="text-red-600 mb-2">{error}</div>}
+              <button className="w-full bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-500">Log In</button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // --- Password Change + Security Question ---
+    function FirstLogin({user, onFinish}) {
+      const [step, setStep] = useState('security');
+      const [question, setQuestion] = useState('');
+      const [answer, setAnswer] = useState('');
+      const [password, setPassword] = useState('');
+      const [confirm, setConfirm] = useState('');
+      const [err, setErr] = useState('');
+
+      const passwordValid = (pw) => pw.length >= 8 && /[A-Z]/.test(pw) && /[0-9]/.test(pw);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setErr('');
+        if (step === 'security') {
+          if (!question || !answer) {
+            setErr('Fill all fields');
+            return;
+          }
+          // Store question/answer (hash answer in real app)
+          await supabase.from('users').update({
+            security_question: question,
+            security_answer_hash: answer // TODO: hash in production
+          }).eq('id', user.id);
+          setStep('password');
+        } else if (step === 'password') {
+          if (!passwordValid(password)) {
+            setErr('Password must be 8+ chars, include a number and uppercase.');
+            return;
+          }
+          if (password !== confirm) {
+            setErr('Passwords do not match.');
+            return;
+          }
+          await supabase.from('users').update({
+            password_hash: password, // TODO: hash in production
+            must_change_password: false
+          }).eq('id', user.id);
+          onFinish();
+        }
+      };
+
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen">
+          <div className="bg-white p-6 rounded shadow w-full max-w-sm">
+            {step === 'security' ? (
+              <>
+                <h2 className="text-xl mb-2">Set Security Question</h2>
+                <form onSubmit={handleSubmit}>
+                  <label className="block mb-1">Security Question</label>
+                  <input className="w-full mb-2 px-2 py-1 border rounded" value={question} onChange={e=>setQuestion(e.target.value)} required />
+                  <label className="block mb-1">Answer</label>
+                  <input className="w-full mb-2 px-2 py-1 border rounded" value={answer} onChange={e=>setAnswer(e.target.value)} required />
+                  {err && <div className="text-red-600 mb-2">{err}</div>}
+                  <button className="w-full bg-blue-600 text-white py-2 rounded">Next</button>
+                </form>
+              </>
+            ) : (
+              <>
+                <h2 className="text-xl mb-2">Change Password</h2>
+                <form onSubmit={handleSubmit}>
+                  <label className="block mb-1">New Password</label>
+                  <input type="password" className="w-full mb-2 px-2 py-1 border rounded" value={password} onChange={e=>setPassword(e.target.value)} required />
+                  <label className="block mb-1">Confirm Password</label>
+                  <input type="password" className="w-full mb-2 px-2 py-1 border rounded" value={confirm} onChange={e=>setConfirm(e.target.value)} required />
+                  {err && <div className="text-red-600 mb-2">{err}</div>}
+                  <button className="w-full bg-blue-600 text-white py-2 rounded">Set Password</button>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // --- Dashboard and Navigation ---
+    function Dashboard({user, onLogout}) {
+      const [tab, setTab] = useState('email');
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          <header className="flex items-center justify-between bg-blue-700 text-white px-4 py-3">
+            <div className="font-bold text-xl">Project Arcadia</div>
+            <div className="flex items-center gap-4">
+              <span>{user.display_name || user.username} ({getRoleName(user.role_id)})</span>
+              <button onClick={onLogout} className="bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">Log Out</button>
+            </div>
+          </header>
+          <nav className="bg-blue-800 text-white flex gap-2 px-4 py-2">
+            <button className={tab==='email' ? 'font-bold underline' : ''} onClick={()=>setTab('email')}>Email</button>
+            <button className={tab==='chat' ? 'font-bold underline' : ''} onClick={()=>setTab('chat')}>Chat</button>
+            <button className={tab==='docs' ? 'font-bold underline' : ''} onClick={()=>setTab('docs')}>Docs</button>
+            <button className={tab==='slides' ? 'font-bold underline' : ''} onClick={()=>setTab('slides')}>Slides</button>
+            {user.role_id === 3 && (
+              <button className={tab==='admin' ? 'font-bold underline' : ''} onClick={()=>setTab('admin')}>Admin</button>
+            )}
+          </nav>
+          <main className="flex-1 p-4 bg-gray-100">
+            {tab === 'email' && <EmailApp user={user} />}
+            {tab === 'chat' && <ChatApp user={user} />}
+            {tab === 'docs' && <DocsApp user={user} />}
+            {tab === 'slides' && <SlidesApp user={user} />}
+            {tab === 'admin' && user.role_id === 3 && <AdminPanel user={user} />}
+          </main>
+        </div>
+      );
+    }
+
+    // --- Email Module (Internal Only) ---
+    function EmailApp({user}) {
+      const [inbox, setInbox] = useState([]);
+      const [subject, setSubject] = useState('');
+      const [body, setBody] = useState('');
+      const [to, setTo] = useState('');
+      const [sendMsg, setSendMsg] = useState('');
+      const [users, setUsers] = useState([]);
+
+      useEffect(() => {
+        // Load inbox
+        supabase.from('emails')
+          .select('*, sender:sender_id(username, display_name)')
+          .eq('recipient_id', user.id)
+          .order('sent_at', {ascending: false})
+          .then(({data}) => setInbox(data || []));
+        // Load users for directory (if allowed)
+        if (user.role_id > 1) {
+          supabase.from('users')
+            .select('id, username, display_name')
+            .then(({data}) => setUsers(data || []));
+        }
+      }, [user]);
+
+      const sendEmail = async (e) => {
+        e.preventDefault();
+        setSendMsg('');
+        // Find recipient
+        let recipient = users.find(u => u.username === to);
+        if (!recipient) {
+          setSendMsg('User not found.');
+          return;
+        }
+        await supabase.from('emails').insert({
+          sender_id: user.id,
+          recipient_id: recipient.id,
+          subject,
+          body
+        });
+        setSendMsg('Sent!');
+        setSubject('');
+        setBody('');
+        setTo('');
+        // Refresh inbox to get sent emails if needed
+      };
+
+      return (
+        <div>
+          <h2 className="text-xl mb-3">Inbox</h2>
+          <div className="mb-4 max-h-64 overflow-auto border rounded p-2 bg-white">
+            {inbox.length === 0 ? <div>No emails.</div> :
+              inbox.map(email => (
+                <div key={email.id} className="border-b py-2">
+                  <div><b>From:</b> {email.sender.display_name || email.sender.username}@projectarcadia.com</div>
+                  <div><b>Subject:</b> {email.subject}</div>
+                  <div className="text-gray-700 whitespace-pre-wrap">{email.body}</div>
+                  <div className="text-xs text-gray-500">{new Date(email.sent_at).toLocaleString()}</div>
+                </div>
+              ))
+            }
+          </div>
+          {user.role_id > 1 && (
+            <div className="bg-white rounded p-4 shadow">
+              <h3 className="font-bold mb-2">Send Email</h3>
+              <form onSubmit={sendEmail}>
+                <label className="block mb-1">To (username)</label>
+                <input className="w-full mb-2 px-2 py-1 border rounded" value={to} onChange={e=>setTo(e.target.value)} placeholder="username" required />
+                <label className="block mb-1">Subject</label>
+                <input className="w-full mb-2 px-2 py-1 border rounded" value={subject} onChange={e=>setSubject(e.target.value)} required />
+                <label className="block mb-1">Body</label>
+                <textarea className="w-full mb-2 px-2 py-1 border rounded" value={body} onChange={e=>setBody(e.target.value)} required />
+                {sendMsg && <div className="mb-1 text-green-700">{sendMsg}</div>}
+                <button className="bg-blue-600 text-white px-3 py-1 rounded">Send</button>
+              </form>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // --- Chat Module (Basic Direct Messaging) ---
+    function ChatApp({user}) {
+      const [chats, setChats] = useState([]);
+      const [activeChat, setActiveChat] = useState(null);
+      const [message, setMessage] = useState('');
+      const [messages, setMessages] = useState([]);
+      const [users, setUsers] = useState([]);
+
+      useEffect(() => {
+        // Load user's chats
+        supabase.from('chat_members')
+          .select('chat_id, chat:chat_id(is_group, created_by)')
+          .eq('user_id', user.id)
+          .then(async ({data}) => {
+            setChats(data.map(d => d.chat));
+          });
+        // Load users for DMs (if allowed)
+        if (user.role_id > 1) {
+          supabase.from('users').select('id, username, display_name').then(({data})=>setUsers(data||[]));
+        }
+      }, [user]);
+
+      const startChat = async (otherUsername) => {
+        // Find user
+        let other = users.find(u => u.username === otherUsername);
+        if (!other) return;
+        // Check if chat exists - NOTE: replace with your own RPC or logic if needed
+        // For demo, we just create new chat every time
+        let {data: chat} = await supabase.from('chats').insert({
+          is_group: false,
+          created_by: user.id
+        }).select().single();
+        // Add members
+        await supabase.from('chat_members').insert([
+          {chat_id: chat.id, user_id: user.id},
+          {chat_id: chat.id, user_id: other.id}
+        ]);
+        setActiveChat(chat.id);
+      };
+
+      useEffect(() => {
+        if (activeChat) {
+          // Load messages
+          supabase.from('messages')
+            .select('*, sender:sender_id(username, display_name)')
+            .eq('chat_id', activeChat)
+            .order('created_at', {ascending: true})
+            .then(({data}) => setMessages(data || []));
+        } else {
+          setMessages([]);
+        }
+      }, [activeChat]);
+
+      const sendMsg = async (e) => {
+        e.preventDefault();
+        if (!message) return;
+        await supabase.from('messages').insert({
+          chat_id: activeChat,
+          sender_id: user.id,
+          message
+        });
+        setMessage('');
+        // reload messages
+        supabase.from('messages')
+          .select('*, sender:sender_id(username, display_name)')
+          .eq('chat_id', activeChat)
+          .order('created_at', {ascending: true})
+          .then(({data}) => setMessages(data || []));
+      };
+
+      return (
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="md:w-1/4 bg-white p-2 rounded shadow max-h-[400px] overflow-auto">
+            <h3 className="font-bold mb-2">Your Chats</h3>
+            <ul>
+              {chats.length === 0 && <li>No chats yet.</li>}
+              {chats.map(chat => (
+                <li key={chat.id}>
+                  <button className={activeChat===chat.id?"font-bold underline":"hover:underline"} onClick={()=>setActiveChat(chat.id)}>
+                    {chat.is_group ? "[Group]" : "[DM]"} {chat.id.slice(0,6)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {user.role_id > 1 && (
+              <div className="mt-4">
+                <h4 className="text-sm">Start DM</h4>
+                <form onSubmit={e=>{e.preventDefault(); startChat(e.target.elements.user.value);}}>
+                  <input list="dmusers" name="user" className="w-full px-2 py-1 border rounded" placeholder="username" />
+                  <datalist id="dmusers">
+                    {users.filter(u=>u.id!==user.id).map(u=>
+                      <option key={u.id} value={u.username}>{u.display_name||u.username}</option>
+                    )}
+                  </datalist>
+                  <button className="mt-1 bg-blue-600 text-white px-2 py-1 rounded">DM</button>
+                </form>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 bg-white rounded p-3 shadow flex flex-col max-h-[400px]">
+            {activeChat ? (
+              <>
+                <div className="flex-1 overflow-y-auto mb-2">
+                  {messages.length === 0 && <div>No messages yet.</div>}
+                  {messages.map(msg=>(
+                    <div key={msg.id} className={msg.sender_id===user.id?"text-right":"text-left"}>
+                      <span className="font-bold">{msg.sender.display_name || msg.sender.username}:</span>
+                      <span> {msg.message}</span>
+                      <span className="text-xs text-gray-400 ml-2">{new Date(msg.created_at).toLocaleTimeString()}</span>
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={sendMsg} className="flex gap-2">
+                  <input className="flex-1 px-2 py-1 border rounded" value={message} onChange={e=>setMessage(e.target.value)} />
+                  <button className="bg-blue-600 text-white px-4 py-1 rounded">Send</button>
+                </form>
+              </>
+            ) : (
+              <div>Select a chat to start messaging.</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // --- Docs Module (Simple Markdown Editor/Viewer) ---
+    function DocsApp({user}) {
+      const [docs, setDocs] = useState([]);
+      const [title, setTitle] = useState('');
+      const [content, setContent] = useState('');
+      const [msg, setMsg] = useState('');
+
+      useEffect(() => {
+        supabase.from('documents')
+          .select('*')
+          .eq('owner_id', user.id)
+          .order('created_at', {ascending: false})
+          .then(({data}) => setDocs(data||[]));
+      }, [user]);
+
+      const createDoc = async (e) => {
+        e.preventDefault();
+        if (!title||!content) return;
+        await supabase.from('documents').insert({
+          owner_id: user.id,
+          title,
+          content
+        });
+        setMsg('Created!');
+        setTitle(''); setContent('');
+        // reload
+        supabase.from('documents')
+          .select('*')
+          .eq('owner_id', user.id)
+          .order('created_at', {ascending: false})
+          .then(({data}) => setDocs(data||[]));
+      };
+
+      return (
+        <div>
+          <h2 className="text-xl mb-3">Your Documents</h2>
+          <ul>
+            {docs.length === 0 && <li>No documents yet.</li>}
+            {docs.map(doc => (
+              <li key={doc.id} className="border-b py-2">
+                <b>{doc.title}</b>
+                <pre className="bg-gray-100 p-2 rounded mt-1 whitespace-pre-wrap">{doc.content}</pre>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-6 bg-white p-4 rounded shadow">
+            <h3 className="font-bold mb-2">Create New Doc</h3>
+            <form onSubmit={createDoc}>
+              <input className="w-full mb-2 px-2 py-1 border rounded" placeholder="Title" value={title} onChange={e=>setTitle(e.target.value)} />
+              <textarea className="w-full mb-2 px-2 py-1 border rounded" placeholder="Content" value={content} onChange={e=>setContent(e.target.value)} />
+              {msg && <div className="text-green-600 mb-2">{msg}</div>}
+              <button className="bg-blue-600 text-white px-3 py-1 rounded">Create</button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // --- Slides Module (Simple) ---
+    function SlidesApp({user}) {
+      // For brevity, this demo just lists docs as "slide decks"
+      const [docs, setDocs] = useState([]);
+      useEffect(()=> {
+        supabase.from('documents').select('*').eq('owner_id', user.id).then(({data})=>setDocs(data||[]));
+      }, [user]);
+      return (
+        <div>
+          <h2 className="text-xl mb-3">Your Slide Decks</h2>
+          <ul>
+            {docs.length === 0 && <li>No slide decks yet.</li>}
+            {docs.map(doc => (
+              <li key={doc.id} className="border-b py-2">
+                <b>{doc.title}</b>
+                <div>{doc.content.slice(0,50)}...</div>
+              </li>
+            ))}
+          </ul>
+          <div className="bg-yellow-100 p-2 rounded mt-2 text-xs">
+            In a complete version, you can create proper slides and present. (Feature coming soon!)
+          </div>
+        </div>
+      );
+    }
+
+    // --- Admin Panel (C-Level Only) ---
+    function AdminPanel({user}) {
+      const [users, setUsers] = useState([]);
+      const [newUser, setNewUser] = useState({username:'', display_name:'', role_id:2});
+      const [msg, setMsg] = useState('');
+
+      useEffect(() => {
+        supabase.from('users').select('*').then(({data})=>setUsers(data||[]));
+      }, []);
+
+      const createUser = async (e) => {
+        e.preventDefault();
+        if (!newUser.username) return;
+        await supabase.from('users').insert({
+          username: newUser.username,
+          display_name: newUser.display_name,
+          role_id: newUser.role_id,
+          email: emailForUser(newUser.username),
+          password_hash: newUser.username, // first login: username as pw
+          must_change_password: true,
+          is_active: true
+        });
+        setMsg('User created!');
+        setNewUser({username:'', display_name:'', role_id:2});
+        supabase.from('users').select('*').then(({data})=>setUsers(data||[]));
+      };
+
+      return (
+        <div>
+          <h2 className="text-xl mb-3">Admin: User Management</h2>
+          <table className="min-w-full mb-4 border border-gray-300">
+            <thead className="bg-gray-200"><tr><th className="border px-2 py-1">Username</th><th className="border px-2 py-1">Name</th><th className="border px-2 py-1">Role</th><th className="border px-2 py-1">Status</th></tr></thead>
+            <tbody>
+              {users.map(u=>(
+                <tr key={u.id} className="even:bg-gray-50">
+                  <td className="border px-2 py-1">{u.username}</td>
+                  <td className="border px-2 py-1">{u.display_name}</td>
+                  <td className="border px-2 py-1">{getRoleName(u.role_id)}</td>
+                  <td className="border px-2 py-1">{u.is_active?'Active':'Disabled'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="bg-white p-4 rounded shadow max-w-sm">
+            <h3 className="font-bold mb-2">Create New User</h3>
+            <form onSubmit={createUser}>
+              <input className="mb-2 w-full px-2 py-1 border rounded" placeholder="Username" value={newUser.username} onChange={e=>setNewUser({...newUser,username:e.target.value})} required />
+              <input className="mb-2 w-full px-2 py-1 border rounded" placeholder="Display Name" value={newUser.display_name} onChange={e=>setNewUser({...newUser,display_name:e.target.value})} />
+              <select className="mb-2 w-full px-2 py-1 border rounded" value={newUser.role_id} onChange={e=>setNewUser({...newUser,role_id:Number(e.target.value)})}>
+                <option value={1}>Guest</option>
+                <option value={2}>Member</option>
+                <option value={3}>C-Level (Admin)</option>
+              </select>
+              {msg && <div className="text-green-600 mb-2">{msg}</div>}
+              <button className="bg-blue-600 text-white px-3 py-1 rounded">Create</button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // --- Main App ---
+    function App() {
+      const [currentUser, setCurrentUser] = useState(null);
+      const [reload, setReload] = useState(false);
+
+      useEffect(() => {
+        // For demo: no persistent session
+        setCurrentUser(null);
+      }, [reload]);
+
+      if (!currentUser) return <Login onLogin={setCurrentUser} />;
+      if (currentUser.must_change_password) return <FirstLogin user={currentUser} onFinish={()=>setReload(r=>!r)} />;
+      return <Dashboard user={currentUser} onLogout={()=>setReload(r=>!r)} />;
+    }
+
+    // --- Render ---
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
